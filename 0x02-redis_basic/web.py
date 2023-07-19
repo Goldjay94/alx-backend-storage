@@ -1,21 +1,39 @@
 #!/usr/bin/env python3
 """
-create a web cach
+create a web caching
 """
 import redis
 import requests
-rc = redis.Redis()
-count = 0
+from functools import wraps
+from typing import Callable
 
 
+redis_store = redis.Redis()
+'''The module-level Redis instance.
+'''
+
+
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data.
+    '''
+    @wraps(method)
+    def invoker(url) -> str:
+        '''The wrapper function for caching the output.
+        '''
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
+        if result:
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.set(f'count:{url}', 0)
+        redis_store.setex(f'result:{url}', 10, result)
+        return result
+    return invoker
+
+
+@data_cacher
 def get_page(url: str) -> str:
-    """ get a page and cach value"""
-    rc.set(f"cached:{url}", count)
-    resp = requests.get(url)
-    rc.incr(f"count:{url}")
-    rc.setex(f"cached:{url}", 10, rc.get(f"cached:{url}"))
-    return resp.text
-
-
-if __name__ == "__main__":
-    get_page('http://slowwly.robertomurray.co.uk')
+    '''Returns the content of a URL after caching the request's response,
+    and tracking the request.
+    '''
+    return requests.get(url).text
